@@ -9,7 +9,7 @@ It is an alarm clock application for the
 The LCD "shield" provides 5 push buttons that can be used to interact with the Raspberry Pi, to switch to different menus, enable / disable alarm times, etc..
 
 #### Features
-The alarm dates are read from Google Calendar, any event with the text "**ALARM**" will be fetched and its alarm date stored locally. 
+The alarm dates are read from Google Calendar, any event with the text **ALARM** will be fetched and its alarm date stored locally. 
 You can enable or disable certain alarm dates you do not wish to use. 
 They will only be disabled locally. 
 
@@ -31,7 +31,7 @@ Please read this here for installation instructions: [Adafruit Learning System -
 #### Howto use
 * Copy all provided files into a new directory.
 * Edit the file *alarm_clock.py*. The variables gcal\_client\_id, gcal\_client\_secret, gcal\_developerKey and mp3\_path need to be adjusted to your enviroment.
-Information about the needed Google Calendar values can be found here: [Google Developer Console - Help](https://developers.google.com/console/help/)
+Information about these values can be found here: [Google Developer Console - Help](https://developers.google.com/console/help/)
 * The alarm clock can be started by running the command: 
 > sudo python alarm_clock.py.
 
