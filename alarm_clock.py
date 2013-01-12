@@ -9,6 +9,7 @@ from apiclient.discovery import build
 from oauth2client.file import Storage
 from oauth2client.client import OAuth2WebServerFlow
 from oauth2client.tools import run
+from ConfigParser import SafeConfigParser
 import gflags
 import httplib2
 import time
@@ -19,38 +20,9 @@ import pickle
 import os
 import sys
 import random
+import threading
 
-
-# *************************************************************************************************************************    
-# ********    modify these variables
-# *************************************************************************************************************************    
-
-gcal_client_id = '*****'
-gcal_client_secret = '*****'
-gcal_developerKey = '*****'
-mp3_path = "/home/pi/media/wecker/ringtones_normalized/"
-
-# *************************************************************************************************************************    
-# ********    google calendar access
-# *************************************************************************************************************************    
-
-FLAGS = gflags.FLAGS
-FLOW = OAuth2WebServerFlow(
-    client_id=gcal_client_id, client_secret=gcal_client_secret,
-    scope='https://www.googleapis.com/auth/calendar.readonly',
-    user_agent='alarm_clock.py/1.0.0')
-
-FLAGS.auth_local_webserver = False
-
-storage = Storage('alarm_clock.dat')
-credentials = storage.get()
-if credentials is None or credentials.invalid == True:
-    credentials = run(FLOW, storage)
-
-http = httplib2.Http()
-http = credentials.authorize(http)
-service = build(serviceName='calendar', version='v3', http=http, developerKey=gcal_developerKey)
-       
+   
 # *************************************************************************************************************************    
 # initialize the LCD plate
 # use busnum = 0 for raspi version 1 (256MB) and busnum = 1 for version 2
@@ -62,6 +34,15 @@ lcd = Adafruit_CharLCDPlate(busnum = 1)
 # *************************************************************************************************************************    
 
 # global variables
+gcal_client_id = ""
+gcal_client_secret = ""
+gcal_developerKey = ""
+gcal_storage = ""
+data_file = ""
+mp3_path = ""
+
+service = -1
+
 SHOW_CURRENT_TIME = 0
 SHOW_ALARM_TIMES = 1
 SHOW_ALARM_RUNNING = 2
@@ -80,8 +61,92 @@ minutes = datetime.now().minute - 1
 timestamp = time.time()
 
 # *************************************************************************************************************************    
-# ********    helpers   
+# ********    threaded class for loading google calendar data   
+# *************************************************************************************************************************  
+
+class GoogleCalendarData(threading.Thread):
+    def __init__(self, gcal_client_id, gcal_client_secret, gcal_developerKey, gcal_storage, service):
+        self.gcal_client_id = gcal_client_id
+        self.gcal_client_secret = gcal_client_secret
+        self.gcal_developerKey = gcal_developerKey
+        self.gcal_storage = gcal_storage
+        self.service = service
+        threading.Thread.__init__ (self)
+      
+    def run(self):
+        date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        endDate = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        
+        calendar = self.service.calendars().get(calendarId='primary').execute()
+        events = self.service.events().list(
+                calendarId=calendar['id'], 
+                singleEvents=True, 
+                #maxResults=20, 
+                orderBy="startTime", 
+                timeMin=date,
+                timeMax=endDate,
+                q="ALARM"
+            ).execute()
+
+        new_alarm_times = []
+        while True:
+            for event in events.get('items', []):
+                # read in / parse time format
+                timedata = time.strptime(event['start']['dateTime'].split("+")[0], "%Y-%m-%dT%H:%M:%S")
+                # convert to unix epoch
+                timestamp = time.mktime(timedata)
+                # append new alarm date
+                new_alarm_times.append( { "date": timestamp, "status": True } )
+                
+            page_token = events.get('nextPageToken')
+            if page_token:
+                    events = self.service.events().list(
+                    calendarId=calendar['id'], 
+                    singleEvents=True, 
+                    orderBy="startTime", 
+                    timeMin=date,
+                    timeMax=endDate,
+                    q="ALARM",
+                    pageToken=page_token
+                ).execute()
+            else:
+                break
+        self.alarm_times = new_alarm_times
+
 # *************************************************************************************************************************    
+# ********    helpers   
+# *************************************************************************************************************************  
+
+def _read_config_file():
+    global gcal_client_id, gcal_client_secret, gcal_developerKey, gcal_storage, data_file, mp3_path
+    parser = SafeConfigParser()
+    parser.read('alarmclock.cfg')
+
+    gcal_client_id = parser.get('google_calendar', 'client_id')
+    gcal_client_secret = parser.get('google_calendar', 'client_secret')
+    gcal_developerKey = parser.get('google_calendar', 'developerKey')
+    gcal_storage = parser.get('google_calendar', 'storage')
+    data_file = parser.get('alarm_clock', 'data_file')
+    mp3_path = parser.get('alarm_clock', 'mp3_path')
+    
+def _init_google_calendar():
+    global service
+    FLAGS = gflags.FLAGS
+    FLOW = OAuth2WebServerFlow(
+        client_id=gcal_client_id, client_secret=gcal_client_secret,
+        scope='https://www.googleapis.com/auth/calendar.readonly',
+        user_agent='alarm_clock.py/1.0.0')
+
+    FLAGS.auth_local_webserver = False
+
+    storage = Storage(gcal_storage)
+    credentials = storage.get()
+    if credentials is None or credentials.invalid == True:
+        credentials = run(FLOW, storage)
+
+    http = httplib2.Http()
+    http = credentials.authorize(http)
+    service = build(serviceName='calendar', version='v3', http=http, developerKey=gcal_developerKey)
 
 def _run_cmd_and_return(cmd):
     p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
@@ -137,14 +202,14 @@ def _check_alarm_times():
     
 def _load_data():
     global hours, alarm_times
-    alarm_times = pickle.load( open( "alarm_data.pickle", "rb" ) )
+    alarm_times = pickle.load( open( data_file, "rb" ) )
     hours = datetime.now().hour
     
     _merge_alarm_data(_get_gcal_data())
     _save_data()
     
 def _save_data():
-    pickle.dump( alarm_times, open( "alarm_data.pickle", "wb" ) )
+    pickle.dump( alarm_times, open( data_file, "wb" ) )
 
 def _get_gcal_data():
     date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.000Z")
@@ -429,6 +494,9 @@ def menu_nothing():
 def main():
     global ipaddr
     ipaddr = _get_ip()
+    
+    _read_config_file()
+    _init_google_calendar()
     
     init_display()
 
