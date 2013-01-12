@@ -30,7 +30,7 @@ Please read this here for installation instructions: [Adafruit Learning System -
 
 #### Howto use
 * Copy all provided files into a new directory.
-* Edit the file *alarm_clock.py*. The variables gcal\_client\_id, gcal\_client\_secret, gcal\_developerKey and mp3\_path need to be adjusted to your enviroment.
+* Edit the configfile *alarm_clock.cfg*. The variables client\_id, client\_secret, developerKey are part of the Google Developer API.
 Information about these values can be found here: [Google Developer Console - Help](https://developers.google.com/console/help/)
 * The alarm clock can be started by running the command: 
 > sudo python alarm_clock.py.
@@ -45,7 +45,6 @@ The main menu shows the current date, time and IP address of your Raspberry Pi.
 
 * Pressing UP force reloads the data from Google Calendar.
 * Pressing DOWN force starts a test alarm.
-* Pressing LEFT + RIGHT shuts down the Raspberry Pi (via "shutdown -h now").
 * Pressing SELECT switches to the alarm date menu.
 
 The alarm date menu shows all currently loaded alarm dates and times.
@@ -61,6 +60,12 @@ This is useful for when you have the alarm clock in your bedroom and want to get
 
 * Pressing LEFT + RIGHT shuts down the Raspberry Pi (via "shutdown -h now").
 * Pressing SELECT switches back to the main menu.
+
+#### Todo
+
+Clean up the code.
+Seriously! It is a mess.
+My excuse? These are my first few lines of Python, ever. ;)
 
 #### License
 

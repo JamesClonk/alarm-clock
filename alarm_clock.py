@@ -65,15 +65,12 @@ timestamp = time.time()
 # *************************************************************************************************************************  
 
 class GoogleCalendarData(threading.Thread):
-    def __init__(self, gcal_client_id, gcal_client_secret, gcal_developerKey, gcal_storage, service):
-        self.gcal_client_id = gcal_client_id
-        self.gcal_client_secret = gcal_client_secret
-        self.gcal_developerKey = gcal_developerKey
-        self.gcal_storage = gcal_storage
+    def __init__(self, service):
         self.service = service
         threading.Thread.__init__ (self)
       
     def run(self):
+        self.alarm_times = ""
         date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.000Z")
         endDate = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         
@@ -113,6 +110,12 @@ class GoogleCalendarData(threading.Thread):
                 break
         self.alarm_times = new_alarm_times
 
+    def stop(self):
+        try:
+            self._Thread__stop()
+        except:
+            print(str(self.getName()) + " did not stop!")
+
 # *************************************************************************************************************************    
 # ********    helpers   
 # *************************************************************************************************************************  
@@ -120,7 +123,7 @@ class GoogleCalendarData(threading.Thread):
 def _read_config_file():
     global gcal_client_id, gcal_client_secret, gcal_developerKey, gcal_storage, data_file, mp3_path
     parser = SafeConfigParser()
-    parser.read('alarmclock.cfg')
+    parser.read('alarm_clock.cfg')
 
     gcal_client_id = parser.get('google_calendar', 'client_id')
     gcal_client_secret = parser.get('google_calendar', 'client_secret')
@@ -141,7 +144,7 @@ def _init_google_calendar():
 
     storage = Storage(gcal_storage)
     credentials = storage.get()
-    if credentials is None or credentials.invalid == True:
+    if (credentials is None) or (credentials.invalid == True):
         credentials = run(FLOW, storage)
 
     http = httplib2.Http()
@@ -212,43 +215,18 @@ def _save_data():
     pickle.dump( alarm_times, open( data_file, "wb" ) )
 
 def _get_gcal_data():
-    date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    endDate = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    
-    calendar = service.calendars().get(calendarId='primary').execute()
-    events = service.events().list(
-            calendarId=calendar['id'], 
-            singleEvents=True, 
-            #maxResults=20, 
-            orderBy="startTime", 
-            timeMin=date,
-            timeMax=endDate,
-            q="ALARM"
-        ).execute()
+    gcal = GoogleCalendarData(service)
+    gcal.start()
 
-    new_alarm_times = []
-    while True:
-        for event in events.get('items', []):
-            # read in / parse time format
-            timedata = time.strptime(event['start']['dateTime'].split("+")[0], "%Y-%m-%dT%H:%M:%S")
-            # convert to unix epoch
-            timestamp = time.mktime(timedata)
-            # append new alarm date
-            new_alarm_times.append( { "date": timestamp, "status": True } )
-            
-        page_token = events.get('nextPageToken')
-        if page_token:
-                events = service.events().list(
-                calendarId=calendar['id'], 
-                singleEvents=True, 
-                orderBy="startTime", 
-                timeMin=date,
-                timeMax=endDate,
-                q="ALARM",
-                pageToken=page_token
-            ).execute()
-        else:
-            break
+    # timeout of 60 seconds
+    gcal.join(60)
+
+    # check if there was a timeout and the thread is still alive
+    new_alarm_times = alarm_times 
+    if gcal.isAlive():
+        gcal.stop()
+    else:
+        new_alarm_times = gcal.alarm_times 
     return new_alarm_times
     
 def _merge_alarm_data(new_alarm_times):
